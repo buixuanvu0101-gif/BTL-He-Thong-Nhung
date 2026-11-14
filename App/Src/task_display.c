@@ -11,12 +11,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* ==========================================
  * CONFIG
  * ========================================== */
 
 #define DISPLAY_TASK_STACK_SIZE 512U
+
 #define DISPLAY_TASK_PRIORITY \
     (tskIDLE_PRIORITY + 1U)
 
@@ -25,13 +27,15 @@
 
 static TaskHandle_t xDisplayTaskHandle = NULL;
 
-/* Bien theo doi loi de xem trong Debugger */
+/* Debug counters */
 static volatile uint32_t ulQueueDropCount = 0U;
 static volatile uint32_t ulMutexErrorCount = 0U;
 static volatile uint32_t ulOledInitErrorCount = 0U;
+static volatile uint32_t ulOledUpdateCount = 0U;
+static volatile uint32_t ulOledSkippedCount = 0U;
 
 /* ==========================================
- * READ SYSTEM STATE
+ * READ SHARED STATE
  * ========================================== */
 
 static BaseType_t prvReadSystemState(
@@ -45,17 +49,69 @@ static BaseType_t prvReadSystemState(
 
     if (xSemaphoreTake(
             xSystemStateMutex,
-            pdMS_TO_TICKS(10)) != pdTRUE)
+            pdMS_TO_TICKS(10U)) != pdTRUE)
     {
         return pdFAIL;
     }
 
-    /* Copy du lieu trong khi giu Mutex */
     *pState = gSystemState;
 
     xSemaphoreGive(xSystemStateMutex);
 
     return pdPASS;
+}
+
+/* ==========================================
+ * COMPARE DISPLAY CONTENT
+ * ========================================== */
+
+static uint8_t prvDisplayTextChanged(
+    const DisplayText_t *current,
+    const DisplayText_t *previous)
+{
+    if ((current == NULL) ||
+        (previous == NULL))
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->temperature,
+               previous->temperature) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->humidity,
+               previous->humidity) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->distance,
+               previous->distance) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->threshold,
+               previous->threshold) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->source,
+               previous->source) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(current->alarm,
+               previous->alarm) != 0)
+    {
+        return 1U;
+    }
+
+    return 0U;
 }
 
 /* ==========================================
@@ -72,18 +128,29 @@ static void prvUpdateOled(
 
     bsp_oled_clear();
 
-    bsp_oled_write_line(0U, pText->temperature);
-    bsp_oled_write_line(1U, pText->humidity);
-    bsp_oled_write_line(2U, pText->distance);
-    bsp_oled_write_line(3U, pText->threshold);
-    bsp_oled_write_line(4U, pText->source);
-    bsp_oled_write_line(5U, pText->alarm);
+    bsp_oled_write_line(
+        0U, pText->temperature);
+
+    bsp_oled_write_line(
+        1U, pText->humidity);
+
+    bsp_oled_write_line(
+        2U, pText->distance);
+
+    bsp_oled_write_line(
+        3U, pText->threshold);
+
+    bsp_oled_write_line(
+        4U, pText->source);
+
+    bsp_oled_write_line(
+        5U, pText->alarm);
 
     bsp_oled_update();
 }
 
 /* ==========================================
- * UPDATE LED AND BUZZER
+ * ALARM OUTPUT
  * ========================================== */
 
 static void prvUpdateAlarm(
@@ -95,20 +162,21 @@ static void prvUpdateAlarm(
     }
 
     BspAlarmOutput_t output =
-        bsp_alarm_evaluate(pState->alarm_flags);
+        bsp_alarm_evaluate(
+            pState->alarm_flags
+        );
 
     bsp_alarm_apply(&output);
 }
 
 /* ==========================================
- * SAFE STATE WHEN DATA IS UNAVAILABLE
+ * DATA ERROR OUTPUT
  * ========================================== */
 
 static void prvSetDataErrorOutput(void)
 {
     BspAlarmOutput_t output = {0};
 
-    /* Bao loi du lieu, khong coi la binh thuong */
     output.led_green = 0U;
     output.led_red = 1U;
     output.buzzer = 0U;
@@ -117,10 +185,11 @@ static void prvSetDataErrorOutput(void)
 }
 
 /* ==========================================
- * SEND BUTTON EVENT
+ * BUTTON QUEUE
  * ========================================== */
 
-static void prvSendButtonEvent(UiEvent_t event)
+static void prvSendButtonEvent(
+    UiEvent_t event)
 {
     if (xUiEventQueue == NULL)
     {
@@ -133,13 +202,12 @@ static void prvSendButtonEvent(UiEvent_t event)
             &event,
             0U) != pdPASS)
     {
-        /* Queue day, su kien khong duoc gui */
         ulQueueDropCount++;
     }
 }
 
 /* ==========================================
- * PROCESS BUTTON
+ * BUTTON PROCESSING
  * ========================================== */
 
 static void prvProcessButton(
@@ -154,11 +222,15 @@ static void prvProcessButton(
         (uint32_t)xTaskGetTickCount() *
         (uint32_t)portTICK_PERIOD_MS;
 
-    ButtonEvent_t event = button_logic_update(
-        button,
-        bsp_button_is_pressed(),
-        now_ms
-    );
+    uint8_t pressed =
+        bsp_button_is_pressed();
+
+    ButtonEvent_t event =
+        button_logic_update(
+            button,
+            pressed,
+            now_ms
+        );
 
     if (event == BUTTON_EVENT_SHORT)
     {
@@ -175,14 +247,15 @@ static void prvProcessButton(
 }
 
 /* ==========================================
- * MAIN DISPLAY TASK
+ * MAIN TASK
  * ========================================== */
 
-static void prvDisplayTask(void *pvParameters)
+static void prvDisplayTask(
+    void *pvParameters)
 {
     (void)pvParameters;
 
-    TickType_t xLastWakeTime =
+    TickType_t lastWakeTime =
         xTaskGetTickCount();
 
     TickType_t pollTicks =
@@ -192,13 +265,17 @@ static void prvDisplayTask(void *pvParameters)
         pdMS_TO_TICKS(DISPLAY_PERIOD_MS);
 
     TickType_t lastDisplayTick =
-        xLastWakeTime;
+        lastWakeTime;
 
     SystemState_t localState = {0};
-    DisplayText_t displayText = {0};
+
+    DisplayText_t currentText = {0};
+    DisplayText_t previousText = {0};
+
     ButtonLogic_t button;
 
     uint8_t consecutiveErrors = 0U;
+    uint8_t hasPreviousFrame = 0U;
 
     button_logic_init(&button);
 
@@ -222,36 +299,62 @@ static void prvDisplayTask(void *pvParameters)
 
     for (;;)
     {
-        /* Kiem tra nut nhan */
+        /* Poll nut nhan */
         prvProcessButton(&button);
 
-        TickType_t now = xTaskGetTickCount();
+        TickType_t now =
+            xTaskGetTickCount();
 
-        if ((now - lastDisplayTick) >= displayTicks)
+        if ((TickType_t)(now - lastDisplayTick)
+            >= displayTicks)
         {
             lastDisplayTick = now;
 
-            /* Doc SystemState */
             if (prvReadSystemState(&localState)
                 == pdPASS)
             {
-                /* Reset so lan loi lien tiep */
                 consecutiveErrors = 0U;
 
-                /* Chuyen du lieu thanh chuoi */
+                /* Cap nhat canh bao */
+                prvUpdateAlarm(&localState);
+
+                /* Dinh dang du lieu */
                 display_format_data(
                     &localState,
-                    &displayText
+                    &currentText
                 );
 
-                /* Cap nhat OLED neu san sang */
-                if (oledReady != 0U)
-                {
-                    prvUpdateOled(&displayText);
-                }
+                /* Kiem tra noi dung thay doi */
+                uint8_t needsUpdate =
+                    (hasPreviousFrame == 0U) ||
+                    prvDisplayTextChanged(
+                        &currentText,
+                        &previousText
+                    );
 
-                /* Dieu khien LED va Buzzer */
-                prvUpdateAlarm(&localState);
+                if (needsUpdate != 0U)
+                {
+                    if (oledReady != 0U)
+                    {
+                        prvUpdateOled(
+                            &currentText
+                        );
+
+                        /*
+                         * Driver hien tai tra ve void,
+                         * nen chua xac minh duoc
+                         * viec truyen I2C thanh cong.
+                         */
+                        previousText = currentText;
+                        hasPreviousFrame = 1U;
+
+                        ulOledUpdateCount++;
+                    }
+                }
+                else
+                {
+                    ulOledSkippedCount++;
+                }
             }
             else
             {
@@ -266,15 +369,13 @@ static void prvDisplayTask(void *pvParameters)
                 if (consecutiveErrors >=
                     MAX_STATE_READ_ERRORS)
                 {
-                    /* Bao loi du lieu */
                     prvSetDataErrorOutput();
                 }
             }
         }
 
-        /* Duy tri chu ky FreeRTOS */
         vTaskDelayUntil(
-            &xLastWakeTime,
+            &lastWakeTime,
             pollTicks
         );
     }
