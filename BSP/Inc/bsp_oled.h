@@ -5,28 +5,28 @@
 #include <stdint.h>
 
 /*
- * OLED SSD1306
- * Giao tiep du kien: I2C
- * Kich thuoc du kien: 128x64
+ * SSD1306 OLED I2C 128x64
+ * I2C address: 0x3C (7-bit)
  */
 
-#define OLED_WIDTH       128U
-#define OLED_HEIGHT       64U
-#define OLED_MAX_LINES     8U
+#define OLED_WIDTH        128U
+#define OLED_HEIGHT        64U
+#define OLED_MAX_LINES      8U
+#define OLED_I2C_ADDRESS 0x3CU
 
-/* Khoi tao man hinh OLED */
+/* 1 = thanh cong, 0 = that bai */
 uint8_t bsp_oled_init(void);
 
-/* Xoa bo dem man hinh */
+/* Xoa framebuffer */
 void bsp_oled_clear(void);
 
-/* Ghi chuoi vao dong chi dinh */
+/* Ghi chuoi ASCII vao dong 0..7 */
 void bsp_oled_write_line(
     uint8_t row,
     const char *text
 );
 
-/* Cap nhat bo dem ra man hinh */
+/* Truyen framebuffer ra OLED */
 void bsp_oled_update(void);
 
 #endif
