@@ -10,7 +10,7 @@ typedef struct
     uint32_t hcsr04_init_fail;
     uint32_t dht11_read_fail;
     uint32_t hcsr04_read_fail;
-    uint32_t adc_pending;
+    uint32_t tim4_start_fail;
     uint32_t queue_send_fail;
     uint32_t samples_sent;
 } SensorTaskStats_t;

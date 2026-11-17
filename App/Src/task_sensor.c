@@ -4,6 +4,7 @@
 #include "app_ipc.h"
 #include "sensor_dht11.h"
 #include "sensor_hcsr04.h"
+#include "tim.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -16,16 +17,7 @@
 
 static volatile SensorTaskStats_t s_stats = {0};
 
-/*
- * ADC do Leader phu trach.
- * Chua co API chinh thuc nen tam thoi chua gui Queue.
- */
-static BaseType_t prvReadPotentiometer(uint16_t *raw)
-{
-    (void)raw;
-    return pdFAIL;
-}
-
+/* Sensor Task doc DHT11 va HC-SR04. */
 /* Doc va dong goi du lieu cam bien */
 static BaseType_t prvReadSensors(SensorData_t *data)
 {
@@ -59,18 +51,30 @@ static BaseType_t prvReadSensors(SensorData_t *data)
         return pdFAIL;
     }
 
-    /* Cho Leader thong nhat API ADC */
-    if (prvReadPotentiometer(
-            &data->potentiometer_raw) != pdPASS)
-    {
-        s_stats.adc_pending++;
-        return pdFAIL;
-    }
+    /* Encoder xu ly nguong rieng; khong doc ADC tai day. */
 
     return pdPASS;
 }
 
 /* FreeRTOS Sensor Task */
+static BaseType_t prvEnsureTim4Running(void)
+{
+    if ((htim4.Instance != TIM4) ||
+        (htim4.Init.Prescaler != 71U) ||
+        (htim4.Init.Period != 65535U))
+    {
+        return pdFAIL;
+    }
+
+    if ((TIM4->CR1 & TIM_CR1_CEN) != 0U)
+    {
+        return pdPASS;
+    }
+
+    return (HAL_TIM_Base_Start(&htim4) == HAL_OK)
+        ? pdPASS : pdFAIL;
+}
+
 static void prvSensorTask(void *argument)
 {
     (void)argument;
@@ -80,6 +84,13 @@ static void prvSensorTask(void *argument)
 
     for (;;)
     {
+        if (prvEnsureTim4Running() != pdPASS)
+        {
+            s_stats.tim4_start_fail++;
+            vTaskDelay(pdMS_TO_TICKS(SENSOR_PERIOD_MS));
+            continue;
+        }
+
         /* Thu khoi tao HC-SR04 neu chua san sang */
         if (hcsr04Ready != pdTRUE)
         {
@@ -151,7 +162,7 @@ void task_sensor_get_stats(SensorTaskStats_t *out)
     out->hcsr04_init_fail = s_stats.hcsr04_init_fail;
     out->dht11_read_fail = s_stats.dht11_read_fail;
     out->hcsr04_read_fail = s_stats.hcsr04_read_fail;
-    out->adc_pending = s_stats.adc_pending;
+    out->tim4_start_fail = s_stats.tim4_start_fail;
     out->queue_send_fail = s_stats.queue_send_fail;
     out->samples_sent = s_stats.samples_sent;
 
