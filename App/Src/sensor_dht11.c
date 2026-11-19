@@ -1,11 +1,12 @@
 #include "sensor_dht11.h"
-
 #include "hal_gpio.h"
 #include "tim.h"
 #include "stm32f1xx_hal.h"
 
-#include <stdint.h>
+#include "FreeRTOS.h"
+#include "task.h"
 
+#include <stdint.h>
 #define DHT11_EDGE_TIMEOUT_US  120U
 #define DHT11_BIT_ONE_US        48U
 
@@ -78,7 +79,8 @@ bool sensor_dht11_read(
     APP_GPIO_DHT11_Output();
     APP_GPIO_DHT11_Write(0U);
 
-    HAL_Delay(20);
+    /* Giu DATA o muc LOW du lau, khong chan CPU */
+    vTaskDelay(pdMS_TO_TICKS(30U) + 1U);
 
     /* Nha duong DATA */
     APP_GPIO_DHT11_Write(1U);
