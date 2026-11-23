@@ -44,4 +44,7 @@ typedef void *EventGroupHandle_t;
 #define pdMS_TO_TICKS(ms) \
     ((TickType_t)(ms))
 
+void fake_yield(BaseType_t woken);
+#define portYIELD_FROM_ISR(woken) fake_yield(woken)
+
 #endif /* DEV2_MOCK_FREERTOS_H */

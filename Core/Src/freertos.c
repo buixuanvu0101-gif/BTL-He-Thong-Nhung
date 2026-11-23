@@ -29,6 +29,7 @@
 #include "hal_buzzer.h"
 #include "hal_i2c_stm32.h"
 #include "display_outputs.h"
+#include "bsp_led_adapter.h"
 #include "task_sensor.h"
 #include "task_display.h"
 #include "task_comm.h"
@@ -119,6 +120,7 @@ void MX_FREERTOS_Init(void) {
   hal_i2c_stm32_init();
   Buzzer_Init();
   display_outputs_bind_buzzer(Buzzer_Write);
+  display_outputs_bind_led(bsp_led_write);
 
   /* 3. Khoi tao 3 Task chinh cua he thong */
   task_sensor_create();

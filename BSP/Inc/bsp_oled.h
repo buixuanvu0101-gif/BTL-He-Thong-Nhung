@@ -26,7 +26,10 @@ void bsp_oled_write_line(
     const char *text
 );
 
-/* Truyen framebuffer ra OLED */
-void bsp_oled_update(void);
+/* Truyen mot page 128x8. 1 = OK, 0 = loi I2C/argument. */
+uint8_t bsp_oled_update_page(uint8_t page);
+
+/* Truyen ca 8 page. 1 = OK, 0 = loi I2C. */
+uint8_t bsp_oled_update(void);
 
 #endif

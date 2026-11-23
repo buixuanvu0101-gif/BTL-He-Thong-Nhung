@@ -50,11 +50,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     hal/src/hal_buzzer.c
     hal/src/hal_i2c.c
     hal/src/hal_i2c_stm32.c
+    hal/src/hal_spi.c
 
     # BSP drivers
     BSP/Src/bsp_button.c
     BSP/Src/bsp_alarm.c
     BSP/Src/bsp_alarm_stm32.c
+    BSP/Src/bsp_led_adapter.c
     BSP/Src/bsp_oled.c
 
     # Application & Tasks
@@ -64,6 +66,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/sensor_hcsr04_callback.c
     App/Src/task_sensor.c
     App/Src/button_logic.c
+    App/Src/button_exti.c
     App/Src/display_format.c
     App/Src/display_outputs.c
     App/Src/task_display.c

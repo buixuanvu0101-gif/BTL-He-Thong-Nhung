@@ -1,23 +1,11 @@
-
 #include "bsp_button.h"
-#include "stm32f1xx_hal.h"
+#include "hal_gpio.h"
 
-/* Nut nhan du kien ket noi PB15 */
-#define BUTTON_PORT GPIOB
-#define BUTTON_PIN  GPIO_PIN_15
-
-/*
- * Nut dung pull-up:
- * LOW  = dang nhan
- * HIGH = da nha
+/* Reuse Dev 1's PB10 active-low button mapping.
+ * Do not read PB15: that pin is not configured as a button in .ioc.
+ * PB11 is another input and requires a separately agreed UI mapping.
  */
 uint8_t bsp_button_is_pressed(void)
 {
-    GPIO_PinState state = HAL_GPIO_ReadPin(
-        BUTTON_PORT,
-        BUTTON_PIN
-    );
-
-    return (state == GPIO_PIN_RESET)
-        ? 1U : 0U;
+    return APP_GPIO_Button_Read() ? 1U : 0U;
 }
