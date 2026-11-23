@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "app_ipc.h"
 #include "hal_buzzer.h"
+#include "hal_i2c_stm32.h"
 #include "display_outputs.h"
 #include "task_sensor.h"
 #include "task_display.h"
@@ -114,7 +115,8 @@ void MX_FREERTOS_Init(void) {
   /* 1. Khoi tao Mutex va Queue dung chung (bat buoc goi truoc khi tao Task) */
   app_ipc_init();
 
-  /* 2. Khoi tao PWM Buzzer (PA6 / TIM3_CH1) va gan cho Display Task */
+  /* 2. Khoi tao I2C1 cho OLED va PWM Buzzer */
+  hal_i2c_stm32_init();
   Buzzer_Init();
   display_outputs_bind_buzzer(Buzzer_Write);
 

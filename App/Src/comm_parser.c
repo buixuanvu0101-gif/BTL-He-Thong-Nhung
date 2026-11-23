@@ -40,13 +40,13 @@ void Comm_ParseLine(char *line, CommCmd_t *cmd)
 
     if (strcmp(t0, "SET") == 0 && t1 != NULL && t2 != NULL && t3 == NULL) {
         if (strcmp(t1, "DIST") == 0) {
-            if (parse_int(t2, &v) && v >= COMM_DIST_MIN && v <= COMM_DIST_MAX) {
+            if (parse_int(t2, &v) && v >= APP_DIST_MIN_CM && v <= APP_DIST_MAX_CM) {
                 cmd->type = CMD_SET_DIST; cmd->value = v;
             } else {
                 cmd->type = CMD_ERR_INVALID_VALUE;
             }
         } else if (strcmp(t1, "SOURCE") == 0) {
-            if      (strcmp(t2, "POT") == 0) { cmd->type = CMD_SET_SOURCE; cmd->value = 0; }
+            if      (strcmp(t2, "ENC") == 0) { cmd->type = CMD_SET_SOURCE; cmd->value = 0; }
             else if (strcmp(t2, "PC")  == 0) { cmd->type = CMD_SET_SOURCE; cmd->value = 1; }
             else                             { cmd->type = CMD_ERR_INVALID_VALUE; }
         }

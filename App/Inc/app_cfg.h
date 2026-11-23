@@ -1,12 +1,16 @@
-
 #ifndef APP_CFG_H
 #define APP_CFG_H
 
 #include <stdint.h>
 
+/* Gioi han nguong khoang cach dung chung (cm) */
+#define APP_DIST_MIN_CM 2L
+#define APP_DIST_MAX_CM 400L
+
 /* Nguon nguong canh bao */
 typedef enum
 {
+    THRESHOLD_SOURCE_ENC = 0,
     THRESHOLD_SOURCE_POT = 0,
     THRESHOLD_SOURCE_PC = 1
 } ThresholdSource_t;
