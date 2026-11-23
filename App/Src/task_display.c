@@ -1,181 +1,389 @@
 
 #include "task_display.h"
+
 #include "app_cfg.h"
 #include "app_ipc.h"
 #include "display_format.h"
-#include "button_logic.h"
+#include "display_outputs.h"
+
+#include "bsp_oled.h"
 #include "bsp_alarm.h"
-#include "bsp_button.h"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
-/* Task configuration */
-#define DISPLAY_TASK_STACK_SIZE 384U
-#define DISPLAY_TASK_PRIORITY \
+/*
+ * DEV 2 - FREERTOS DISPLAY TASK
+ *
+ * Nhiem vu:
+ * 1. Doc SystemState bang Mutex.
+ * 2. Doc canh bao tu EventGroup.
+ * 3. Hien thi OLED SSD1306.
+ * 4. Gui trang thai LED/Buzzer qua adapter.
+ *
+ * Khong doc GPIO nut nhan.
+ * Khong xu ly UART.
+ * Khong doc cam bien.
+ * Khong tinh nguong canh bao.
+ */
+
+#ifndef TASK_DISPLAY_PRIO
+#define TASK_DISPLAY_PRIO \
     (tskIDLE_PRIORITY + 1U)
+#endif
 
-#define BUTTON_POLL_MS 20U
+#ifndef TASK_DISPLAY_STACK
+#define TASK_DISPLAY_STACK 512U
+#endif
 
-static TaskHandle_t xDisplayTaskHandle = NULL;
+#define DISPLAY_MUTEX_TIMEOUT_MS 10U
+#define DISPLAY_MAX_READ_ERRORS  3U
 
-/* Read shared state safely */
+/* Dung DISPLAY_PERIOD_MS tu app_cfg.h */
+
+static TaskHandle_t s_display_task_handle = NULL;
+
+/* Bien theo doi trong debugger */
+static volatile uint32_t s_mutex_errors = 0U;
+static volatile uint32_t s_ipc_errors = 0U;
+static volatile uint32_t s_oled_init_errors = 0U;
+static volatile uint32_t s_oled_updates = 0U;
+static volatile uint32_t s_oled_skipped = 0U;
+
+/* ========================================
+ * READ SYSTEM STATE
+ * ======================================== */
+
 static BaseType_t prvReadSystemState(
-    SystemState_t *pState)
+    SystemState_t *state)
 {
-    if ((pState == NULL) ||
+    if ((state == NULL) ||
         (xSystemStateMutex == NULL))
     {
         return pdFAIL;
     }
 
+    TickType_t timeout =
+        pdMS_TO_TICKS(DISPLAY_MUTEX_TIMEOUT_MS);
+
+    if (timeout == 0U)
+    {
+        timeout = 1U;
+    }
+
     if (xSemaphoreTake(
             xSystemStateMutex,
-            pdMS_TO_TICKS(10)) != pdTRUE)
+            timeout) != pdTRUE)
     {
         return pdFAIL;
     }
 
-    *pState = gSystemState;
-    xSemaphoreGive(xSystemStateMutex);
+    *state = gSystemState;
+
+    (void)xSemaphoreGive(xSystemStateMutex);
 
     return pdPASS;
 }
 
-/* Update LED and buzzer */
-static void prvUpdateAlarm(
-    const SystemState_t *pState)
+/* ========================================
+ * READ ALARM EVENT GROUP
+ * ======================================== */
+
+static BaseType_t prvReadAlarmFlags(
+    uint32_t *alarm_flags)
 {
-    if (pState == NULL)
+    if ((alarm_flags == NULL) ||
+        (xAlarmEventGroup == NULL))
+    {
+        return pdFAIL;
+    }
+
+    EventBits_t bits =
+        xEventGroupGetBits(xAlarmEventGroup);
+
+    /*
+     * Hien tai app_cfg.h dinh nghia:
+     * ALARM_DISTANCE.
+     *
+     * Chi lay bit canh bao duoc thong nhat.
+     */
+    *alarm_flags =
+        (uint32_t)(bits & ALARM_DISTANCE);
+
+    return pdPASS;
+}
+
+/* ========================================
+ * OLED CONTENT COMPARISON
+ * ======================================== */
+
+static uint8_t prvTextChanged(
+    const DisplayText_t *current,
+    const DisplayText_t *previous)
+{
+    if ((current == NULL) ||
+        (previous == NULL))
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->temperature,
+            previous->temperature) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->humidity,
+            previous->humidity) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->distance,
+            previous->distance) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->threshold,
+            previous->threshold) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->source,
+            previous->source) != 0)
+    {
+        return 1U;
+    }
+
+    if (strcmp(
+            current->alarm,
+            previous->alarm) != 0)
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
+
+/* ========================================
+ * UPDATE OLED
+ * ======================================== */
+
+static void prvUpdateOled(
+    const DisplayText_t *text)
+{
+    if (text == NULL)
     {
         return;
     }
 
+    bsp_oled_clear();
+
+    bsp_oled_write_line(
+        0U, text->temperature);
+
+    bsp_oled_write_line(
+        1U, text->humidity);
+
+    bsp_oled_write_line(
+        2U, text->distance);
+
+    bsp_oled_write_line(
+        3U, text->threshold);
+
+    bsp_oled_write_line(
+        4U, text->source);
+
+    bsp_oled_write_line(
+        5U, text->alarm);
+
+    bsp_oled_update();
+}
+
+/* ========================================
+ * LED AND BUZZER
+ * ======================================== */
+
+static void prvApplyAlarm(
+    uint32_t alarm_flags)
+{
     BspAlarmOutput_t output =
-        bsp_alarm_evaluate(pState->alarm_flags);
+        bsp_alarm_evaluate(alarm_flags);
 
-    bsp_alarm_apply(&output);
-}
-
-/* Detect button event and send to Dev 3 */
-static void prvProcessButton(
-    ButtonLogic_t *button)
-{
-    uint32_t now_ms =
-        (uint32_t)xTaskGetTickCount() *
-        (uint32_t)portTICK_PERIOD_MS;
-
-    ButtonEvent_t event = button_logic_update(
-        button,
-        bsp_button_is_pressed(),
-        now_ms
+    display_outputs_apply(
+        output.led_green,
+        output.led_red,
+        output.buzzer
     );
-
-    UiEvent_t uiEvent;
-
-    if (event == BUTTON_EVENT_SHORT)
-    {
-        uiEvent = UI_EVENT_BUTTON_SHORT;
-    }
-    else if (event == BUTTON_EVENT_LONG)
-    {
-        uiEvent = UI_EVENT_BUTTON_LONG;
-    }
-    else
-    {
-        return;
-    }
-
-    if (xUiEventQueue != NULL)
-    {
-        if (xQueueSend(
-                xUiEventQueue,
-                &uiEvent,
-                0U) != pdPASS)
-        {
-            /* TODO: Record queue overflow */
-        }
-    }
 }
 
-/* Main display task */
-static void prvDisplayTask(void *pvParameters)
+/* ========================================
+ * SAFE STATE ON IPC ERROR
+ * ======================================== */
+
+static void prvApplyDataError(void)
+{
+    /*
+     * LED xanh OFF
+     * LED do ON
+     * Buzzer OFF
+     *
+     * Chinh sach loi de xuat.
+     */
+    display_outputs_apply(
+        0U,
+        1U,
+        0U
+    );
+}
+
+/* ========================================
+ * MAIN DISPLAY TASK
+ * ======================================== */
+
+static void prvDisplayTask(
+    void *pvParameters)
 {
     (void)pvParameters;
 
-    TickType_t xLastWakeTime =
+    TickType_t lastWakeTime =
         xTaskGetTickCount();
 
-    TickType_t pollTicks =
-        pdMS_TO_TICKS(BUTTON_POLL_MS);
-
-    TickType_t displayTicks =
+    TickType_t periodTicks =
         pdMS_TO_TICKS(DISPLAY_PERIOD_MS);
 
-    TickType_t lastDisplayTick =
-        xLastWakeTime;
-
-    SystemState_t localState = {0};
-    DisplayText_t displayText = {0};
-    ButtonLogic_t button;
-
-    button_logic_init(&button);
-
-    if (pollTicks == 0U)
+    if (periodTicks == 0U)
     {
-        pollTicks = 1U;
+        periodTicks = 1U;
     }
 
-    if (displayTicks == 0U)
+    SystemState_t localState = {0};
+
+    DisplayText_t currentText = {0};
+    DisplayText_t previousText = {0};
+
+    uint32_t alarmFlags = 0U;
+
+    uint8_t consecutiveErrors = 0U;
+    uint8_t hasPreviousFrame = 0U;
+
+    /*
+     * Backend I2C phai duoc bind
+     * truoc khi task bat dau.
+     */
+    uint8_t oledReady = bsp_oled_init();
+
+    if (oledReady == 0U)
     {
-        displayTicks = 1U;
+        s_oled_init_errors++;
     }
 
     for (;;)
     {
-        prvProcessButton(&button);
+        BaseType_t stateOk =
+            prvReadSystemState(&localState);
 
-        TickType_t now = xTaskGetTickCount();
+        BaseType_t alarmOk =
+            prvReadAlarmFlags(&alarmFlags);
 
-        if ((now - lastDisplayTick) >= displayTicks)
+        if ((stateOk == pdPASS) &&
+            (alarmOk == pdPASS))
         {
-            lastDisplayTick = now;
+            consecutiveErrors = 0U;
 
-            if (prvReadSystemState(&localState)
-                == pdPASS)
-            {
-                display_format_data(
-                    &localState,
-                    &displayText
+            /*
+             * EventGroup la nguon
+             * trang thai canh bao.
+             */
+            localState.alarm_flags =
+                alarmFlags;
+
+            /* Cap nhat LED/Buzzer */
+            prvApplyAlarm(alarmFlags);
+
+            /* Chuyen du lieu thanh chuoi */
+            display_format_data(
+                &localState,
+                &currentText
+            );
+
+            /* Chi ve lai neu co thay doi */
+            uint8_t needsUpdate =
+                (hasPreviousFrame == 0U) ||
+                prvTextChanged(
+                    &currentText,
+                    &previousText
                 );
 
-                /*
-                 * TODO:
-                 * Draw displayText on SSD1306.
-                 */
-
-                prvUpdateAlarm(&localState);
-            }
-            else
+            if ((needsUpdate != 0U) &&
+                (oledReady != 0U))
             {
+                prvUpdateOled(&currentText);
+
                 /*
-                 * TODO:
-                 * Handle missing state.
+                 * API OLED update hien
+                 * tra ve void.
+                 *
+                 * Chua xac nhan I2C
+                 * da truyen thanh cong.
                  */
+                previousText = currentText;
+                hasPreviousFrame = 1U;
+
+                s_oled_updates++;
+            }
+            else if (needsUpdate == 0U)
+            {
+                s_oled_skipped++;
+            }
+        }
+        else
+        {
+            if (stateOk != pdPASS)
+            {
+                s_mutex_errors++;
+            }
+
+            if (alarmOk != pdPASS)
+            {
+                s_ipc_errors++;
+            }
+
+            if (consecutiveErrors <
+                DISPLAY_MAX_READ_ERRORS)
+            {
+                consecutiveErrors++;
+            }
+
+            if (consecutiveErrors >=
+                DISPLAY_MAX_READ_ERRORS)
+            {
+                prvApplyDataError();
             }
         }
 
         vTaskDelayUntil(
-            &xLastWakeTime,
-            pollTicks
+            &lastWakeTime,
+            periodTicks
         );
     }
 }
 
-/* Create FreeRTOS task */
+/* ========================================
+ * CREATE TASK
+ * ======================================== */
+
 BaseType_t task_display_create(void)
 {
-    if (xDisplayTaskHandle != NULL)
+    if (s_display_task_handle != NULL)
     {
         return pdFAIL;
     }
@@ -183,15 +391,18 @@ BaseType_t task_display_create(void)
     return xTaskCreate(
         prvDisplayTask,
         "Display",
-        DISPLAY_TASK_STACK_SIZE,
+        TASK_DISPLAY_STACK,
         NULL,
-        DISPLAY_TASK_PRIORITY,
-        &xDisplayTaskHandle
+        TASK_DISPLAY_PRIO,
+        &s_display_task_handle
     );
 }
 
-/* Get handle for stack monitoring */
+/* ========================================
+ * GET TASK HANDLE
+ * ======================================== */
+
 TaskHandle_t task_display_get_handle(void)
 {
-    return xDisplayTaskHandle;
+    return s_display_task_handle;
 }
