@@ -44,12 +44,38 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    # HAL drivers
+    hal/src/hal_gpio.c
+    hal/src/hal_uart.c
+    hal/src/hal_buzzer.c
+    hal/src/hal_i2c.c
+    hal/src/hal_i2c_stm32.c
+
+    # BSP drivers
+    BSP/Src/bsp_button.c
+    BSP/Src/bsp_alarm.c
+    BSP/Src/bsp_alarm_stm32.c
+    BSP/Src/bsp_oled.c
+
+    # Application & Tasks
+    App/Src/app_ipc.c
+    App/Src/sensor_dht11.c
+    App/Src/sensor_hcsr04.c
+    App/Src/sensor_hcsr04_callback.c
+    App/Src/task_sensor.c
+    App/Src/button_logic.c
+    App/Src/display_format.c
+    App/Src/display_outputs.c
+    App/Src/task_display.c
+    App/Src/comm_parser.c
+    App/Src/task_comm.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    hal/inc
+    BSP/Inc
+    App/Inc
 )
 
 # Add project symbols (macros)

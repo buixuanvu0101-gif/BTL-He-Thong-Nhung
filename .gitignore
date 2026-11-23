@@ -54,11 +54,10 @@ dkms.conf
 
 # debug information files
 *.dwo
-=======
+tests/*.exe
 build/
 .vscode/
 *.elf
 *.bin
 *.hex
 *.map
->>>>>>> master

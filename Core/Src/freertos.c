@@ -25,7 +25,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "app_ipc.h"
+#include "hal_buzzer.h"
+#include "hal_i2c_stm32.h"
+#include "display_outputs.h"
+#include "task_sensor.h"
+#include "task_display.h"
+#include "task_comm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,7 +112,18 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  /* 1. Khoi tao Mutex va Queue dung chung (bat buoc goi truoc khi tao Task) */
+  app_ipc_init();
+
+  /* 2. Khoi tao I2C1 cho OLED va PWM Buzzer */
+  hal_i2c_stm32_init();
+  Buzzer_Init();
+  display_outputs_bind_buzzer(Buzzer_Write);
+
+  /* 3. Khoi tao 3 Task chinh cua he thong */
+  task_sensor_create();
+  task_display_create();
+  Comm_TaskCreate();
   /* USER CODE END RTOS_THREADS */
 
 }
@@ -133,4 +150,3 @@ void StartDefaultTask(void const * argument)
 /* USER CODE BEGIN Application */
 
 /* USER CODE END Application */
-
