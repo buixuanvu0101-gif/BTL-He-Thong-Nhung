@@ -13,6 +13,7 @@ BaseType_t xTaskCreate(
 );
 
 TickType_t xTaskGetTickCount(void);
+TickType_t xTaskGetTickCountFromISR(void);
 
 void vTaskDelayUntil(
     TickType_t *previous_wake,
