@@ -1,12 +1,16 @@
-
 #ifndef APP_CFG_H
 #define APP_CFG_H
 
 #include <stdint.h>
 
+/* Gioi han nguong khoang cach dung chung (cm) */
+#define APP_DIST_MIN_CM 2L
+#define APP_DIST_MAX_CM 400L
+
 /* Nguon nguong canh bao */
 typedef enum
 {
+    THRESHOLD_SOURCE_ENC = 0,
     THRESHOLD_SOURCE_POT = 0,
     THRESHOLD_SOURCE_PC = 1
 } ThresholdSource_t;
@@ -32,19 +36,15 @@ typedef struct
 /* Bit canh bao */
 #define ALARM_DISTANCE (1UL << 0)
 
-
-/* Su kien giao dien */
+/* Su kien nut bam */
 typedef enum
 {
     UI_EVENT_BUTTON_SHORT = 0,
     UI_EVENT_BUTTON_LONG = 1,
-
-    /* Su kien Encoder KY-040 */
     UI_EVENT_ENCODER_CW = 2,
     UI_EVENT_ENCODER_CCW = 3,
     UI_EVENT_ENCODER_PRESSED = 4
 } UiEvent_t;
-
 
 #define DISPLAY_PERIOD_MS 200U
 
