@@ -72,6 +72,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/task_display.c
     App/Src/comm_parser.c
     App/Src/task_comm.c
+    App/Src/task_control.c
 )
 
 # Add include paths

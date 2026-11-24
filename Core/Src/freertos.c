@@ -33,6 +33,7 @@
 #include "task_sensor.h"
 #include "task_display.h"
 #include "task_comm.h"
+#include "task_control.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -122,10 +123,13 @@ void MX_FREERTOS_Init(void) {
   display_outputs_bind_buzzer(Buzzer_Write);
   display_outputs_bind_led(bsp_led_write);
 
-  /* 3. Khoi tao 3 Task chinh cua he thong */
+  /* 3. Khoi tao 4 Task chinh cua he thong */
   task_sensor_create();
   task_display_create();
   Comm_TaskCreate();
+  if (task_control_create() != pdPASS) {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
 }
