@@ -24,9 +24,12 @@
 #include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 
+/* USER CODE BEGIN Includes */
+#include "app_ipc.h"
+#include "task_encoder.h"
 /* USER CODE END Includes */
+
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -80,9 +83,23 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackTy
   * @retval None
   */
 void MX_FREERTOS_Init(void) {
-  /* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+/* USER CODE BEGIN Init */
+
+/* GPIO Encoder KY-040: PA2 CLK, PA3 DT, PA4 SW */
+GPIO_InitTypeDef EncoderGPIO = {0};
+
+__HAL_RCC_GPIOA_CLK_ENABLE();
+
+EncoderGPIO.Pin =
+    GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4;
+
+EncoderGPIO.Mode = GPIO_MODE_INPUT;
+EncoderGPIO.Pull = GPIO_PULLUP;
+
+HAL_GPIO_Init(GPIOA, &EncoderGPIO);
+
+/* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -96,18 +113,30 @@ void MX_FREERTOS_Init(void) {
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
+
+/* USER CODE BEGIN RTOS_QUEUES */
+
+if (app_ipc_init() != pdPASS)
+{
+    Error_Handler();
+}
+
+/* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
   osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
+
+/* USER CODE BEGIN RTOS_THREADS */
+
+if (task_encoder_create() != pdPASS)
+{
+    Error_Handler();
+}
+
+/* USER CODE END RTOS_THREADS */
 
 }
 
