@@ -61,6 +61,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
     # Application & Tasks
     App/Src/app_ipc.c
+    App/Src/encoder_ky040.c
+    App/Src/task_encoder.c
     App/Src/sensor_dht11.c
     App/Src/sensor_hcsr04.c
     App/Src/sensor_hcsr04_callback.c

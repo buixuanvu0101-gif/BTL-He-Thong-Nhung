@@ -40,7 +40,10 @@ typedef struct
 typedef enum
 {
     UI_EVENT_BUTTON_SHORT = 0,
-    UI_EVENT_BUTTON_LONG = 1
+    UI_EVENT_BUTTON_LONG = 1,
+    UI_EVENT_ENCODER_CW = 2,
+    UI_EVENT_ENCODER_CCW = 3,
+    UI_EVENT_ENCODER_PRESSED = 4
 } UiEvent_t;
 
 #define DISPLAY_PERIOD_MS 200U
