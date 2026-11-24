@@ -12,7 +12,7 @@
 #define COMM_TASK_STACK_WORDS  256U
 #define COMM_POLL_MS           5U      /* buffer UART cua Dev 1 chi 64 byte */
 #define COMM_LINE_MAX          32U
-#define COMM_IDLE_TIMEOUT_MS   500U
+#define COMM_IDLE_TIMEOUT_MS   10000U
 #define COMM_TX_TIMEOUT_MS     20U     /* moi byte */
 #define COMM_MUTEX_TIMEOUT_MS  50U
 
@@ -115,11 +115,13 @@ static void prvCommTask(void *argument)
             }
         }
 
-        /* Lenh do dang qua 500 ms thi bo */
+        /* Lenh do dang qua 10000 ms thi bo */
         if (idx > 0U &&
             (xTaskGetTickCount() - last_rx) > pdMS_TO_TICKS(COMM_IDLE_TIMEOUT_MS)) {
             idx = 0U;
         }
+
+
         vTaskDelay(pdMS_TO_TICKS(COMM_POLL_MS));
     }
 }
