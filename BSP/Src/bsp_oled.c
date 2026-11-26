@@ -179,7 +179,11 @@ uint8_t bsp_oled_init(void)
 
     oled_ready = 1U;
 
-    bsp_oled_update();
+    if (bsp_oled_update() == 0U)
+    {
+        oled_ready = 0U;
+        return 0U;
+    }
 
     return 1U;
 }
@@ -233,58 +237,43 @@ void bsp_oled_write_line(
 }
 
 /* ==========================================
- * TRANSFER FRAMEBUFFER
+ * TRANSFER ONE PAGE (bounded I2C work)
  * ========================================== */
 
-void bsp_oled_update(void)
+uint8_t bsp_oled_update_page(uint8_t page)
 {
-    if (oled_ready == 0U)
+    if ((oled_ready == 0U) || (page >= OLED_PAGES))
     {
-        return;
+        return 0U;
+    }
+
+    if ((prvSendCommand((uint8_t)(0xB0U | page)) == 0U) ||
+        (prvSendCommand(0x00U) == 0U) ||
+        (prvSendCommand(0x10U) == 0U))
+    {
+        oled_ready = 0U;
+        return 0U;
     }
 
     uint8_t packet[OLED_WIDTH + 1U];
-
-    /* SSD1306 data control byte */
     packet[0] = 0x40U;
+    memcpy(&packet[1], oled_buffer[page], OLED_WIDTH);
 
-    for (uint8_t page = 0U;
-         page < OLED_PAGES;
-         page++)
+    if (hal_i2c_write(OLED_I2C_ADDRESS, packet, sizeof(packet),
+                      OLED_TIMEOUT_MS) != DEV2_I2C_OK)
     {
-        /* Page address */
-        if (prvSendCommand(
-            (uint8_t)(0xB0U | page)) == 0U)
-        {
-            return;
-        }
-
-        /* Column address: low nibble */
-        if (prvSendCommand(0x00U) == 0U)
-        {
-            return;
-        }
-
-        /* Column address: high nibble */
-        if (prvSendCommand(0x10U) == 0U)
-        {
-            return;
-        }
-
-        memcpy(
-            &packet[1],
-            oled_buffer[page],
-            OLED_WIDTH
-        );
-
-        if (hal_i2c_write(
-            OLED_I2C_ADDRESS,
-            packet,
-            sizeof(packet),
-            OLED_TIMEOUT_MS
-        ) != DEV2_I2C_OK)
-        {
-            return;
-        }
+        oled_ready = 0U;
+        return 0U;
     }
+    return 1U;
+}
+
+uint8_t bsp_oled_update(void)
+{
+    if (oled_ready == 0U) { return 0U; }
+    for (uint8_t page = 0U; page < OLED_PAGES; ++page)
+    {
+        if (bsp_oled_update_page(page) == 0U) { return 0U; }
+    }
+    return 1U;
 }

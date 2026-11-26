@@ -29,9 +29,12 @@
 #include "hal_buzzer.h"
 #include "hal_i2c_stm32.h"
 #include "display_outputs.h"
+#include "bsp_led_adapter.h"
 #include "task_sensor.h"
 #include "task_display.h"
 #include "task_comm.h"
+#include "task_encoder.h"
+#include "task_control.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -87,7 +90,13 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackTy
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
-
+  /* KY-040: PA2 CLK, PA3 DT, PA4 SW */
+  GPIO_InitTypeDef EncoderGPIO = {0};
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  EncoderGPIO.Pin = GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4;
+  EncoderGPIO.Mode = GPIO_MODE_INPUT;
+  EncoderGPIO.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &EncoderGPIO);
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -113,17 +122,27 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* 1. Khoi tao Mutex va Queue dung chung (bat buoc goi truoc khi tao Task) */
-  app_ipc_init();
+  if (app_ipc_init() != pdPASS)
+  {
+    Error_Handler();
+  }
 
   /* 2. Khoi tao I2C1 cho OLED va PWM Buzzer */
   hal_i2c_stm32_init();
   Buzzer_Init();
   display_outputs_bind_buzzer(Buzzer_Write);
+  display_outputs_bind_led(bsp_led_write);
 
-  /* 3. Khoi tao 3 Task chinh cua he thong */
+  /* 3. Khoi tao 5 Task chinh cua he thong */
   task_sensor_create();
   task_display_create();
   Comm_TaskCreate();
+  if (task_encoder_create() != pdPASS) {
+    Error_Handler();
+  }
+  if (task_control_create() != pdPASS) {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
 }

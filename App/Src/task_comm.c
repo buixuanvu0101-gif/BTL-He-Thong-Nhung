@@ -12,7 +12,7 @@
 #define COMM_TASK_STACK_WORDS  256U
 #define COMM_POLL_MS           5U      /* buffer UART cua Dev 1 chi 64 byte */
 #define COMM_LINE_MAX          32U
-#define COMM_IDLE_TIMEOUT_MS   500U
+#define COMM_IDLE_TIMEOUT_MS   10000U
 #define COMM_TX_TIMEOUT_MS     20U     /* moi byte */
 #define COMM_MUTEX_TIMEOUT_MS  50U
 

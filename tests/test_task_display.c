@@ -1,6 +1,6 @@
-
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "semphr.h"
 #include "event_groups.h"
 
@@ -8,283 +8,141 @@
 #include "app_ipc.h"
 #include "task_display.h"
 #include "display_outputs.h"
-#include "hal_i2c.h"
+#include "bsp_alarm.h"
+#include "bsp_oled.h"
+#include "bsp_button.h"
 
 #include <assert.h>
 #include <setjmp.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
-/*
- * DEV 2 - TASK DISPLAY INTEGRATION MOCK
- *
- * Mo phong:
- * - Tao FreeRTOS task
- * - Mutex bao ve SystemState
- * - EventGroup canh bao
- * - I2C OLED
- * - Callback LED / Buzzer
- *
- * Khong su dung STM32 that.
- */
-
-/* Bien chung duoc khai bao trong app_ipc.h */
 QueueHandle_t xSensorQueue = NULL;
 QueueHandle_t xUiEventQueue = NULL;
 SemaphoreHandle_t xSystemStateMutex = NULL;
 EventGroupHandle_t xAlarmEventGroup = NULL;
-
 SystemState_t gSystemState = {0};
 
-/* Trang thai mock */
-static int fake_mutex_object;
-static int fake_event_object;
-static int fake_task_object;
-
-static TickType_t fake_tick = 0U;
-static EventBits_t fake_alarm_bits = 0U;
-
-static void (*created_task)(void *) = NULL;
-
-static uint32_t task_loops = 0U;
-static uint32_t mutex_reads = 0U;
-static uint32_t oled_data_packets = 0U;
-static uint32_t led_calls = 0U;
-static uint32_t buzzer_calls = 0U;
-
-static uint8_t green_state = 0U;
-static uint8_t red_state = 0U;
-static uint8_t buzzer_state = 0U;
-
+static int fake_queue, fake_mutex, fake_group, fake_task;
+static TickType_t fake_tick;
+static void (*created_task)(void *);
 static jmp_buf test_exit;
+static unsigned loops, page_packets, mutex_reads, output_calls, queue_calls;
+static unsigned oled_init_calls, oled_line_calls;
+static UiEvent_t events[4];
+static uint8_t led_green, led_red, buzzer_on;
+static uint8_t last_page;
 
-/* =====================================
- * FREERTOS TASK MOCK
- * ===================================== */
-
-BaseType_t xTaskCreate(
-    void (*task_fn)(void *),
-    const char *name,
-    uint32_t stack_depth,
-    void *parameters,
-    UBaseType_t priority,
-    TaskHandle_t *handle)
+BaseType_t xTaskCreate(void (*fn)(void *), const char *name, uint32_t stack,
+                       void *arg, UBaseType_t prio, TaskHandle_t *handle)
 {
-    (void)parameters;
-    (void)priority;
-
-    assert(task_fn != NULL);
-    assert(name != NULL);
-    assert(stack_depth >= 256U);
-    assert(handle != NULL);
-
-    created_task = task_fn;
-    *handle = &fake_task_object;
-
+    (void)arg;
+    assert(fn != NULL && name != NULL && handle != NULL);
+    assert(strcmp(name, "Display") == 0);
+    assert(stack == 512U && prio == tskIDLE_PRIORITY + 1U);
+    created_task = fn;
+    *handle = &fake_task;
     return pdPASS;
 }
-
-TickType_t xTaskGetTickCount(void)
+TickType_t xTaskGetTickCount(void) { return fake_tick; }
+void vTaskDelayUntil(TickType_t *prev, TickType_t inc)
 {
-    return fake_tick;
+    assert(inc == 20U);
+    *prev += inc;
+    fake_tick = *prev;
+    ++loops;
+    if (fake_tick >= 3620U) { longjmp(test_exit, 1); }
 }
-
-void vTaskDelayUntil(
-    TickType_t *previous_wake,
-    TickType_t increment)
+BaseType_t xSemaphoreTake(SemaphoreHandle_t m, TickType_t timeout)
 {
-    assert(previous_wake != NULL);
-    assert(increment > 0U);
-
-    *previous_wake += increment;
-    fake_tick = *previous_wake;
-
-    task_loops++;
-
-    /*
-     * Lan 1: Normal
-     * Lan 2: Normal, du lieu khong doi
-     * Lan 3: Alarm
-     */
-    if (task_loops == 2U)
-    {
-        fake_alarm_bits = ALARM_DISTANCE;
-    }
-
-    if (task_loops >= 3U)
-    {
-        longjmp(test_exit, 1);
-    }
+    assert(m == xSystemStateMutex && timeout > 0U);
+    ++mutex_reads;
+    /* Simulate an IPC fault after 3000 ms. */
+    return (fake_tick >= 3000U) ? pdFALSE : pdTRUE;
 }
-
-/* =====================================
- * MUTEX MOCK
- * ===================================== */
-
-BaseType_t xSemaphoreTake(
-    SemaphoreHandle_t handle,
-    TickType_t timeout)
+BaseType_t xSemaphoreGive(SemaphoreHandle_t m)
 {
-    assert(handle == xSystemStateMutex);
-    assert(timeout > 0U);
-
-    mutex_reads++;
-
+    assert(m == xSystemStateMutex);
     return pdTRUE;
 }
-
-BaseType_t xSemaphoreGive(
-    SemaphoreHandle_t handle)
-{
-    assert(handle == xSystemStateMutex);
-    return pdTRUE;
-}
-
-/* =====================================
- * EVENT GROUP MOCK
- * ===================================== */
-
-EventBits_t xEventGroupGetBits(
-    EventGroupHandle_t group)
+EventBits_t xEventGroupGetBits(EventGroupHandle_t group)
 {
     assert(group == xAlarmEventGroup);
-    return fake_alarm_bits;
+    return (fake_tick >= 2600U) ? ALARM_DISTANCE : 0U;
 }
-
-/* =====================================
- * I2C MOCK
- * ===================================== */
-
-static Dev2I2cStatus_t mock_i2c_write(
-    uint8_t address,
-    const uint8_t *data,
-    size_t length,
-    uint32_t timeout_ms)
+BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t timeout)
 {
-    assert(address == 0x3CU);
-    assert(data != NULL);
-    assert(length >= 2U);
-    assert(timeout_ms > 0U);
-
-    if (data[0] == 0x00U)
-    {
-        assert(length == 2U);
-    }
-    else if (data[0] == 0x40U)
-    {
-        assert(length == 129U);
-        oled_data_packets++;
-    }
-    else
-    {
-        assert(0 && "Unexpected OLED packet");
-    }
-
-    return DEV2_I2C_OK;
+    assert(q == xUiEventQueue && item != NULL && timeout == 0U);
+    assert(queue_calls < 4U);
+    events[queue_calls++] = *(const UiEvent_t *)item;
+    return pdPASS;
 }
-
-/* =====================================
- * OUTPUT MOCK
- * ===================================== */
-
-static void mock_led_write(
-    uint8_t green,
-    uint8_t red)
+uint8_t bsp_button_is_pressed(void)
 {
-    green_state = green;
-    red_state = red;
-    led_calls++;
+    /* 200ms short press, 1700ms long press. */
+    return ((fake_tick >= 100U && fake_tick < 300U) ||
+            (fake_tick >= 600U && fake_tick < 2300U)) ? 1U : 0U;
 }
-
-static void mock_buzzer_write(
-    uint8_t on)
+uint8_t bsp_oled_init(void) { ++oled_init_calls; return 1U; }
+void bsp_oled_clear(void) { }
+void bsp_oled_write_line(uint8_t row, const char *text)
 {
-    buzzer_state = on;
-    buzzer_calls++;
+    assert(row < 6U && text != NULL);
+    ++oled_line_calls;
 }
-
-/* =====================================
- * MAIN TEST
- * ===================================== */
+uint8_t bsp_oled_update_page(uint8_t page)
+{
+    assert(page < 8U);
+    if (page_packets % 8U == 0U) { assert(page == 0U); }
+    else { assert(page == last_page + 1U); }
+    last_page = page;
+    ++page_packets;
+    return 1U;
+}
+uint8_t bsp_oled_update(void) { return 1U; }
+static void led_callback(uint8_t green, uint8_t red)
+{
+    led_green = green;
+    led_red = red;
+    ++output_calls;
+}
+static void buzzer_callback(uint8_t on) { buzzer_on = on; }
 
 int main(void)
 {
-    puts("=== DEV 2 DISPLAY TASK TEST ===");
-
-    /* Khoi tao IPC gia lap */
-    xSystemStateMutex = &fake_mutex_object;
-    xAlarmEventGroup = &fake_event_object;
-
-    /* Du lieu cam bien gia lap */
+    puts("=== DEV2: DISPLAY TASK / BUTTON / IPC ===");
+    assert(task_display_create() == pdFAIL); /* Must have IPC first. */
+    xUiEventQueue = &fake_queue;
+    xSystemStateMutex = &fake_mutex;
+    xAlarmEventGroup = &fake_group;
     gSystemState.sensor.temperature_c = 28.5f;
     gSystemState.sensor.humidity_percent = 65.0f;
     gSystemState.sensor.distance_cm = 15.2f;
-    gSystemState.sensor.potentiometer_raw = 2048U;
-
     gSystemState.distance_threshold_cm = 20.0f;
-    gSystemState.threshold_source =
-        THRESHOLD_SOURCE_POT;
-
-    /* Dang ky I2C backend mock */
-    assert(
-        hal_i2c_bind(mock_i2c_write)
-        == DEV2_I2C_OK
-    );
-
-    /* Dang ky output mock */
-    display_outputs_bind_led(mock_led_write);
-    display_outputs_bind_buzzer(mock_buzzer_write);
-
-    /* Kiem tra tao task */
+    display_outputs_bind_led(led_callback);
+    display_outputs_bind_buzzer(buzzer_callback);
     assert(task_display_create() == pdPASS);
-    assert(created_task != NULL);
+    assert(task_display_create() == pdFAIL); /* No duplicate task. */
     assert(task_display_get_handle() != NULL);
+    if (setjmp(test_exit) == 0) { created_task(NULL); assert(0); }
 
-    puts("[PASS] Task creation");
-
-    /*
-     * Chay task gia lap.
-     * Dung longjmp sau 3 vong lap de
-     * thoat khoi FreeRTOS task vo han.
-     */
-    if (setjmp(test_exit) == 0)
-    {
-        created_task(NULL);
-
-        /* Task khong duoc tu ket thuc */
-        assert(0 && "Task returned unexpectedly");
-    }
-
-    assert(task_loops == 3U);
-    assert(mutex_reads == 3U);
-
-    puts("[PASS] Mutex and task scheduling");
-
-    /*
-     * OLED:
-     * 8 goi khi init (clear)
-     * 8 goi o vong 1 (Normal)
-     * 0 goi o vong 2 (khong doi)
-     * 8 goi o vong 3 (Alarm)
-     */
-    assert(oled_data_packets == 24U);
-
-    puts("[PASS] OLED update on change");
-
-    /* Trang thai cuoi la Alarm */
-    assert(fake_alarm_bits == ALARM_DISTANCE);
-
-    assert(green_state == 0U);
-    assert(red_state == 1U);
-    assert(buzzer_state == 1U);
-
-    assert(led_calls == 3U);
-    assert(buzzer_calls == 3U);
-
-    puts("[PASS] Alarm EventGroup and outputs");
-
-    puts("All display task tests passed!");
-
+    assert(loops == 181U);
+    assert(queue_calls == 2U);
+    assert(events[0] == UI_EVENT_BUTTON_SHORT);
+    assert(events[1] == UI_EVENT_BUTTON_LONG);
+    assert(task_display_get_queue_drop_count() == 0U);
+    assert(oled_init_calls == 1U);
+    assert(page_packets >= 16U);
+    assert(page_packets % 8U == 0U);
+    assert(oled_line_calls >= 12U);
+    assert(mutex_reads > 10U);
+    assert(output_calls > 10U);
+    /* After 3 consecutive mutex failures, outputs are in safe state. */
+    assert(led_green == 0U && led_red == 1U && buzzer_on == 0U);
+    assert(task_display_get_state_read_error_count() >= 3U);
+    assert(task_display_get_oled_error_count() == 0U);
+    puts("[PASS] IPC handles, periodic button polling, short/long events");
+    puts("[PASS] OLED page transfer, alarm EventGroup, fail-safe outputs");
     return 0;
 }

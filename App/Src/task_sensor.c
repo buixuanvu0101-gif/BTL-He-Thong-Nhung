@@ -50,13 +50,15 @@ static void prvSensorTask(void *argument)
         pdMS_TO_TICKS(DHT11_PERIOD_MS);
 
     TickType_t nextWake = xTaskGetTickCount();
-    TickType_t lastDhtTick = 0U;
+    TickType_t lastDhtTick = xTaskGetTickCount();
 
-    BaseType_t firstDhtRead = pdTRUE;
+    BaseType_t firstDhtRead = pdFALSE;
     BaseType_t dhtValid = pdFALSE;
     BaseType_t hcsr04Ready = pdFALSE;
 
     SensorData_t data = {0};
+    data.temperature_c = -1.0f;
+    data.humidity_percent = -1.0f;
 
     for (;;)
     {
@@ -119,9 +121,14 @@ static void prvSensorTask(void *argument)
             }
         }
 
-        /* 5. Chi gui Queue khi du lieu hop le */
-        if ((dhtValid == pdTRUE) &&
-            (distanceValid == pdTRUE) &&
+        /* 5. HC-SR04 doc lap voi DHT11 */
+        if (dhtValid != pdTRUE)
+        {
+            data.temperature_c = -1.0f;
+            data.humidity_percent = -1.0f;
+        }
+
+        if ((distanceValid == pdTRUE) &&
             (xSensorQueue != NULL))
         {
             if (xQueueSend(xSensorQueue, &data, 0U) == pdPASS)
