@@ -53,7 +53,6 @@ static void prvSensorTask(void *argument)
     TickType_t lastDhtTick = 0U;
 
     BaseType_t firstDhtRead = pdTRUE;
-    BaseType_t dhtValid = pdFALSE;
     BaseType_t hcsr04Ready = pdFALSE;
 
     SensorData_t data = {0};
@@ -70,6 +69,8 @@ static void prvSensorTask(void *argument)
             continue;
         }
 
+        BaseType_t fresh = pdFALSE;
+
         /* 2. Doc DHT11 moi 2000 ms */
         TickType_t now = xTaskGetTickCount();
 
@@ -83,11 +84,10 @@ static void prvSensorTask(void *argument)
                     &data.temperature_c,
                     &data.humidity_percent))
             {
-                dhtValid = pdTRUE;
+                fresh = pdTRUE;
             }
             else
             {
-                dhtValid = pdFALSE;
                 s_stats.dht11_read_fail++;
             }
         }
@@ -112,6 +112,7 @@ static void prvSensorTask(void *argument)
             if (sensor_hcsr04_read(&data.distance_cm))
             {
                 distanceValid = pdTRUE;
+                fresh = pdTRUE;
             }
             else
             {
@@ -119,9 +120,8 @@ static void prvSensorTask(void *argument)
             }
         }
 
-        /* 5. Chi gui Queue khi du lieu hop le */
-        if ((dhtValid == pdTRUE) &&
-            (distanceValid == pdTRUE) &&
+        /* 5. Gui Queue khi co it nhat 1 cam bien doc moi (1 cam bien loi khong chan cam bien kia) */
+        if ((fresh == pdTRUE) &&
             (xSensorQueue != NULL))
         {
             if (xQueueSend(xSensorQueue, &data, 0U) == pdPASS)

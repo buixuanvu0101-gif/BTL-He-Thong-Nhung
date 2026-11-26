@@ -55,6 +55,7 @@ bool sensor_dht11_read(
 {
     uint8_t bytes[5] = {0};
     bool success = false;
+    bool scheduler_suspended = false;
 
     if ((temperature_c == NULL) ||
         (humidity_percent == NULL))
@@ -81,6 +82,14 @@ bool sensor_dht11_read(
 
     /* Giu DATA o muc LOW du lau, khong chan CPU */
     vTaskDelay(pdMS_TO_TICKS(30U) + 1U);
+
+    /*
+     * Tu day den het 40 bit: khong cho phep chuyen task,
+     * vi moi bit chi dai ~50-70 us. ISR ngan (tick, TIM2)
+     * van chay binh thuong.
+     */
+    vTaskSuspendAll();
+    scheduler_suspended = true;
 
     /* Nha duong DATA */
     APP_GPIO_DHT11_Write(1U);
@@ -141,6 +150,11 @@ bool sensor_dht11_read(
     success = true;
 
 finish:
+    if (scheduler_suspended)
+    {
+        (void)xTaskResumeAll();
+    }
+
     /* Nha bus DATA sau moi lan doc */
     APP_GPIO_DHT11_Output();
     APP_GPIO_DHT11_Write(1U);
