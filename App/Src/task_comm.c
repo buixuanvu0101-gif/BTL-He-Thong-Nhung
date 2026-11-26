@@ -115,13 +115,11 @@ static void prvCommTask(void *argument)
             }
         }
 
-        /* Lenh do dang qua 10000 ms thi bo */
+        /* Lenh do dang qua 500 ms thi bo */
         if (idx > 0U &&
             (xTaskGetTickCount() - last_rx) > pdMS_TO_TICKS(COMM_IDLE_TIMEOUT_MS)) {
             idx = 0U;
         }
-
-
         vTaskDelay(pdMS_TO_TICKS(COMM_POLL_MS));
     }
 }
